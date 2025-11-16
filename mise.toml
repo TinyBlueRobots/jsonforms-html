@@ -1,0 +1,9 @@
+[tools]
+golangci-lint = "2"
+gotestsum = "latest"
+
+[tasks.build]
+run = "GOOS=js GOARCH=wasm go build -o public/jsonforms.wasm main.go"
+
+[tasks.lint]
+run = "golangci-lint run --fix ./..."

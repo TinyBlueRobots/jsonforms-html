@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Forms HTML Renderer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        textarea {
+            min-height: 400px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+        }
+
+        #html-source {
+            min-height: 400px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+        }
+
+        .output-section {
+            display: none;
+        }
+
+        .output-section.visible {
+            display: block;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--pico-border-color);
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+
+        .tab.active {
+            border-bottom-color: var(--pico-primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        #rendered-output {
+            padding: 20px;
+            border: 1px solid var(--pico-border-color);
+            border-radius: var(--pico-border-radius);
+            background: var(--pico-card-background-color);
+        }
+
+        .loading {
+            display: none;
+            font-style: italic;
+        }
+
+        .loading.visible {
+            display: inline;
+        }
+
+        .error {
+            background: #fee;
+            border: 1px solid #fcc;
+            padding: 15px;
+            border-radius: 4px;
+            color: #c33;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JSON Forms HTML Renderer</h1>
+
+        <div id="error-message" class="error" style="display: none;"></div>
+
+        <div class="input-section">
+            <div class="form-group">
+                <label for="schemaInput">
+                    JSON Schema
+                </label>
+                <textarea id="schemaInput"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="uischemaInput">
+                    UI Schema
+                </label>
+                <textarea id="uischemaInput"></textarea>
+            </div>
+
+            <button id="renderBtn" onclick="renderForm()" disabled>
+                <span id="btn-text">Loading WASM...</span>
+                <span id="loading" class="loading">Rendering...</span>
+            </button>
+        </div>
+
+        <div id="output" class="output-section">
+            <h2>Output</h2>
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('preview')">Preview</button>
+                <button class="tab" onclick="switchTab('source')">HTML Source</button>
+            </div>
+            <div id="preview-tab" class="tab-content active">
+                <div id="rendered-output"></div>
+            </div>
+            <div id="source-tab" class="tab-content">
+                <textarea id="html-source" readonly></textarea>
+            </div>
+        </div>
+    </div>
+
+    <script src="wasm_exec.js"></script>
+    <script>
+        let wasmReady = false;
+
+        // Load and initialize WASM
+        async function initWasm() {
+            try {
+                const go = new Go();
+                const result = await WebAssembly.instantiateStreaming(fetch("jsonforms.wasm"), go.importObject);
+                go.run(result.instance);
+
+                wasmReady = true;
+                document.getElementById('renderBtn').disabled = false;
+                document.getElementById('btn-text').textContent = 'Generate HTML';
+
+                // Load example and render immediately
+                loadExample();
+                renderForm();
+            } catch (err) {
+                showError('Failed to load WASM module: ' + err.message);
+                console.error('WASM initialization error:', err);
+            }
+        }
+
+        // Initialize on page load
+        initWasm();
+
+        function loadExample() {
+            const schema = {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Full Name"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "title": "Email Address"
+                    },
+                    "age": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 120,
+                        "title": "Age"
+                    },
+                    "subscribe": {
+                        "type": "boolean",
+                        "title": "Subscribe to newsletter"
+                    }
+                },
+                "required": ["name", "email"]
+            };
+
+            const uischema = {
+                "type": "VerticalLayout",
+                "elements": [
+                    {
+                        "type": "Control",
+                        "scope": "#/properties/name"
+                    },
+                    {
+                        "type": "Control",
+                        "scope": "#/properties/email"
+                    },
+                    {
+                        "type": "Control",
+                        "scope": "#/properties/age"
+                    },
+                    {
+                        "type": "Control",
+                        "scope": "#/properties/subscribe"
+                    }
+                ]
+            };
+
+            document.getElementById('schemaInput').value = JSON.stringify(schema, null, 2);
+            document.getElementById('uischemaInput').value = JSON.stringify(uischema, null, 2);
+        }
+
+        function switchTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(tab + '-tab').classList.add('active');
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = 'Error: ' + message;
+            errorDiv.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('error-message').style.display = 'none';
+        }
+
+        function renderForm() {
+            if (!wasmReady) {
+                showError('WASM module is still loading. Please wait...');
+                return;
+            }
+
+            const schemaText = document.getElementById('schemaInput').value;
+            const uischemaText = document.getElementById('uischemaInput').value;
+            const outputDiv = document.getElementById('output');
+            const btnText = document.getElementById('btn-text');
+            const loading = document.getElementById('loading');
+            const renderBtn = document.getElementById('renderBtn');
+
+            // Hide previous error and output
+            hideError();
+            outputDiv.classList.remove('visible');
+
+            // Show loading state
+            btnText.style.display = 'none';
+            loading.classList.add('visible');
+            renderBtn.disabled = true;
+
+            try {
+                // Parse and validate inputs
+                let schema, uischema;
+                try {
+                    schema = JSON.parse(schemaText);
+                } catch (e) {
+                    throw new Error('Invalid JSON Schema: ' + e.message);
+                }
+                try {
+                    uischema = JSON.parse(uischemaText);
+                } catch (e) {
+                    throw new Error('Invalid UI Schema: ' + e.message);
+                }
+
+                // Combine into the expected format
+                const jsonInput = {
+                    schema: schema,
+                    uischema: uischema
+                };
+
+                // Call the Go WASM function
+                const result = renderHTML(JSON.stringify(jsonInput));
+
+                // Reset button state
+                btnText.style.display = 'inline';
+                loading.classList.remove('visible');
+                renderBtn.disabled = false;
+
+                if (result.error) {
+                    showError(result.error);
+                    return;
+                }
+
+                if (result.html) {
+                    // Display results
+                    document.getElementById('rendered-output').innerHTML = result.html;
+                    document.getElementById('html-source').value = result.html;
+                    outputDiv.classList.add('visible');
+                }
+            } catch (error) {
+                // Reset button state
+                btnText.style.display = 'inline';
+                loading.classList.remove('visible');
+                renderBtn.disabled = false;
+
+                showError(error.message);
+                console.error('Rendering error:', error);
+            }
+        }
+    </script>
+</body>
+</html>
